@@ -107,7 +107,7 @@ class DefaultAiServices<T> extends AiServices<T> {
                 TypeUtils.validateReturnTypesAreProperlyParametrized(method.getName(), method.getGenericReturnType());
             }
 
-            if (context.chatMemoryProvider == null) {
+            if (!context.hasChatMemory()) {
                 for (Parameter parameter : method.getParameters()) {
                     if (parameter.isAnnotationPresent(MemoryId.class)) {
                         throw illegalConfiguration(
