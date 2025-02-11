@@ -28,7 +28,7 @@ public final class RetryUtils {
     /**
      * This class encapsulates a retry policy.
      */
-    public static final class RetryPolicy {
+    public static final class RetryPolicy implements InvocationPolicy {
         /**
          * This class encapsulates a retry policy builder.
          */
@@ -129,6 +129,10 @@ public final class RetryUtils {
             this.backoffExp = backoffExp;
         }
 
+        public int maxAttempts() {
+            return maxAttempts;
+        }
+
         /**
          * This method returns the raw delay in milliseconds for a given attempt.
          * @param attempt The attempt number.
@@ -173,6 +177,11 @@ public final class RetryUtils {
          */
         public <T> T withRetry(Callable<T> action) {
             return withRetry(action, maxAttempts);
+        }
+
+        @Override
+        public Callable<?> apply(final Callable<?> action) {
+            return () -> withRetry(action);
         }
 
         /**

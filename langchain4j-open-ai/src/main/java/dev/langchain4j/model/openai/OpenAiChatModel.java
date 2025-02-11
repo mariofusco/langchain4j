@@ -7,6 +7,9 @@ import dev.ai4j.openai4j.chat.ChatCompletionResponse;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.internal.ExceptionMapper;
+import dev.langchain4j.internal.InvocationPolicy;
+import dev.langchain4j.internal.RetryUtils;
 import dev.langchain4j.model.Tokenizer;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatLanguageModel;
@@ -28,6 +31,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
 
+import static dev.langchain4j.internal.RetryUtils.DEFAULT_RETRY_POLICY;
+import static dev.langchain4j.internal.RetryUtils.retryPolicyBuilder;
 import static dev.langchain4j.internal.RetryUtils.withRetry;
 import static dev.langchain4j.internal.Utils.copyIfNotNull;
 import static dev.langchain4j.internal.Utils.getOrDefault;
@@ -54,7 +59,7 @@ import static java.util.Collections.emptyList;
 public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
 
     private final OpenAiClient client;
-    private final Integer maxRetries;
+    private final InvocationPolicy invocationPolicy;
 
     private final OpenAiChatRequestParameters defaultRequestParameters;
     private final String responseFormat;
@@ -88,7 +93,7 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
                            Map<String, String> metadata,
                            String serviceTier,
                            Duration timeout,
-                           Integer maxRetries,
+                           InvocationPolicy invocationPolicy,
                            Proxy proxy,
                            Boolean logRequests,
                            Boolean logResponses,
@@ -117,7 +122,7 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
                 .userAgent(DEFAULT_USER_AGENT)
                 .customHeaders(customHeaders)
                 .build();
-        this.maxRetries = getOrDefault(maxRetries, 3);
+        this.invocationPolicy = invocationPolicy;
 
         ChatRequestParameters commonParameters;
         if (defaultRequestParameters != null) {
@@ -229,8 +234,8 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
                 toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema).build();
 
         try {
-            ChatCompletionResponse openAiResponse = withRetry(() ->
-                    client.chatCompletion(openAiRequest).execute(), maxRetries);
+            ChatCompletionResponse openAiResponse = invocationPolicy.execute(() ->
+                    client.chatCompletion(openAiRequest).execute());
 
             OpenAiChatResponseMetadata responseMetadata = OpenAiChatResponseMetadata.builder()
                     .id(openAiResponse.id())
@@ -309,13 +314,15 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
         private String serviceTier;
 
         private Duration timeout;
-        private Integer maxRetries;
         private Proxy proxy;
         private Boolean logRequests;
         private Boolean logResponses;
         private Tokenizer tokenizer;
         private Map<String, String> customHeaders;
         private List<ChatModelListener> listeners;
+
+        private RetryUtils.RetryPolicy retryPolicy = DEFAULT_RETRY_POLICY;
+        private ExceptionMapper exceptionMapper = ExceptionMapper.DEFAULT;
 
         public OpenAiChatModelBuilder() {
             // This is public so it can be extended
@@ -448,7 +455,12 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
         }
 
         public OpenAiChatModelBuilder maxRetries(Integer maxRetries) {
-            this.maxRetries = maxRetries;
+            retryPolicy = retryPolicyBuilder()
+                    .maxAttempts(maxRetries)
+                    .delayMillis(500)
+                    .jitterScale(0.2)
+                    .backoffExp(1.5)
+                    .build();
             return this;
         }
 
@@ -507,7 +519,7 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
                     this.metadata,
                     this.serviceTier,
                     this.timeout,
-                    this.maxRetries,
+                    this.exceptionMapper.andThen(this.retryPolicy),
                     this.proxy,
                     this.logRequests,
                     this.logResponses,
@@ -542,7 +554,7 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
                     .add("metadata=" + metadata)
                     .add("serviceTier=" + serviceTier)
                     .add("timeout=" + timeout)
-                    .add("maxRetries=" + maxRetries)
+                    .add("maxRetries=" + retryPolicy.maxAttempts())
                     .add("proxy=" + proxy)
                     .add("logRequests=" + logRequests)
                     .add("logResponses=" + logResponses)
