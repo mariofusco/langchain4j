@@ -1,7 +1,8 @@
 package dev.langchain4j.model.chat.mock;
 
 import static dev.langchain4j.internal.Exceptions.runtime;
-import static dev.langchain4j.internal.RetryUtils.withRetry;
+import static dev.langchain4j.model.chat.policy.PolicyUtil.invokePolicy;
+import static dev.langchain4j.model.chat.policy.RetryUtils.withRetry;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 import static java.util.Collections.synchronizedList;
@@ -9,7 +10,7 @@ import static java.util.Collections.synchronizedList;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.internal.InvocationPolicy;
+import dev.langchain4j.model.chat.policy.InvocationPolicy;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -69,7 +70,7 @@ public class ChatModelMock implements ChatLanguageModel {
     }
 
     private AiMessage internalChat(ChatRequest chatRequest) {
-        return invocationPolicy.execute(() -> aiMessageGenerator.apply(chatRequest));
+        return invokePolicy(invocationPolicy, () -> aiMessageGenerator.apply(chatRequest));
     }
 
     @Override

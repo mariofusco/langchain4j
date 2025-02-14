@@ -1,5 +1,6 @@
-package dev.langchain4j.internal;
+package dev.langchain4j.model.chat.policy;
 
+import dev.langchain4j.internal.JacocoIgnoreCoverageGenerated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -201,7 +202,7 @@ public final class RetryUtils {
                     return action.call();
                 } catch (Exception e) {
                     if (attempt >= maxAttempts) {
-                        throw new RuntimeException(e);
+                        throw e instanceof RuntimeException re ? re : new RuntimeException(e);
                     }
 
                     log.warn(String.format("Exception was thrown on attempt %s of %s", attempt, maxAttempts), e);

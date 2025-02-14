@@ -1,15 +1,14 @@
 package dev.langchain4j.model.openai;
 
 import dev.ai4j.openai4j.OpenAiClient;
-import dev.ai4j.openai4j.OpenAiHttpException;
 import dev.ai4j.openai4j.chat.ChatCompletionRequest;
 import dev.ai4j.openai4j.chat.ChatCompletionResponse;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.internal.ExceptionMapper;
-import dev.langchain4j.internal.InvocationPolicy;
-import dev.langchain4j.internal.RetryUtils;
+import dev.langchain4j.model.chat.policy.ExceptionMapper;
+import dev.langchain4j.model.chat.policy.InvocationPolicy;
+import dev.langchain4j.model.chat.policy.RetryUtils;
 import dev.langchain4j.model.Tokenizer;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatLanguageModel;
@@ -31,9 +30,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
 
-import static dev.langchain4j.internal.RetryUtils.DEFAULT_RETRY_POLICY;
-import static dev.langchain4j.internal.RetryUtils.retryPolicyBuilder;
-import static dev.langchain4j.internal.RetryUtils.withRetry;
+import static dev.langchain4j.model.chat.policy.PolicyUtil.invokePolicy;
+import static dev.langchain4j.model.chat.policy.RetryUtils.DEFAULT_RETRY_POLICY;
+import static dev.langchain4j.model.chat.policy.RetryUtils.retryPolicyBuilder;
+import static dev.langchain4j.model.chat.policy.RetryUtils.withRetry;
 import static dev.langchain4j.internal.Utils.copyIfNotNull;
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.model.chat.Capability.RESPONSE_FORMAT_JSON_SCHEMA;
@@ -233,31 +233,24 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
         ChatCompletionRequest openAiRequest =
                 toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema).build();
 
-        try {
-            ChatCompletionResponse openAiResponse = invocationPolicy.execute(() ->
-                    client.chatCompletion(openAiRequest).execute());
+        // TODO [MF]: check how this works with the streaming API
+        ChatCompletionResponse openAiResponse = invokePolicy(invocationPolicy,
+                () -> client.chatCompletion(openAiRequest).execute());
 
-            OpenAiChatResponseMetadata responseMetadata = OpenAiChatResponseMetadata.builder()
-                    .id(openAiResponse.id())
-                    .modelName(openAiResponse.model())
-                    .tokenUsage(tokenUsageFrom(openAiResponse.usage()))
-                    .finishReason(finishReasonFrom(openAiResponse.choices().get(0).finishReason()))
-                    .created(openAiResponse.created().longValue())
-                    .serviceTier(openAiResponse.serviceTier())
-                    .systemFingerprint(openAiResponse.systemFingerprint())
-                    .build();
+        OpenAiChatResponseMetadata responseMetadata = OpenAiChatResponseMetadata.builder()
+                .id(openAiResponse.id())
+                .modelName(openAiResponse.model())
+                .tokenUsage(tokenUsageFrom(openAiResponse.usage()))
+                .finishReason(finishReasonFrom(openAiResponse.choices().get(0).finishReason()))
+                .created(openAiResponse.created().longValue())
+                .serviceTier(openAiResponse.serviceTier())
+                .systemFingerprint(openAiResponse.systemFingerprint())
+                .build();
 
-            return ChatResponse.builder()
-                    .aiMessage(aiMessageFrom(openAiResponse))
-                    .metadata(responseMetadata)
-                    .build();
-        } catch (RuntimeException e) {
-            if (e.getCause() instanceof OpenAiHttpException openAiHttpException) {
-                throw openAiHttpException;
-            } else {
-                throw e;
-            }
-        }
+        return ChatResponse.builder()
+                .aiMessage(aiMessageFrom(openAiResponse))
+                .metadata(responseMetadata)
+                .build();
     }
 
     @Override
@@ -322,7 +315,7 @@ public class OpenAiChatModel implements ChatLanguageModel, TokenCountEstimator {
         private List<ChatModelListener> listeners;
 
         private RetryUtils.RetryPolicy retryPolicy = DEFAULT_RETRY_POLICY;
-        private ExceptionMapper exceptionMapper = ExceptionMapper.DEFAULT;
+        private ExceptionMapper exceptionMapper = OpenAiExceptionMapper.INSTANCE;
 
         public OpenAiChatModelBuilder() {
             // This is public so it can be extended

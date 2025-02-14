@@ -1,4 +1,4 @@
-package dev.langchain4j.internal;
+package dev.langchain4j.model.chat.policy;
 
 import java.util.concurrent.Callable;
 

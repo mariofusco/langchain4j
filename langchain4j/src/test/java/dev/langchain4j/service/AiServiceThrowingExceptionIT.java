@@ -2,7 +2,7 @@ package dev.langchain4j.service;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.exception.HttpException;
-import dev.langchain4j.internal.InvocationPolicy;
+import dev.langchain4j.model.chat.policy.InvocationPolicy;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatLanguageModel;

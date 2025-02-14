@@ -1,9 +1,10 @@
-package dev.langchain4j.internal;
+package dev.langchain4j.model.chat.policy;
 
 import java.util.concurrent.Callable;
 
-import static dev.langchain4j.internal.RetryUtils.DEFAULT_RETRY_POLICY;
+import static dev.langchain4j.model.chat.policy.RetryUtils.DEFAULT_RETRY_POLICY;
 
+@FunctionalInterface
 public interface InvocationPolicy {
 
     InvocationPolicy DEFAULT = ExceptionMapper.DEFAULT.andThen(RetryUtils.DEFAULT_RETRY_POLICY);
@@ -12,14 +13,6 @@ public interface InvocationPolicy {
 
     default InvocationPolicy andThen(InvocationPolicy invocationPolicy) {
         return action -> invocationPolicy.apply(this.apply(action));
-    }
-
-    default <T> T execute(Callable<T> callable) {
-        try {
-            return (T) apply(callable).call();
-        } catch (Exception e) {
-            throw e instanceof RuntimeException re ? re : new RuntimeException(e);
-        }
     }
 
     static InvocationPolicyBuilder builder() {
