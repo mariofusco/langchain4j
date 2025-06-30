@@ -63,9 +63,13 @@ class PojoOutputParser<T> implements OutputParser<T> {
 
     @Override
     public String formatInstructions() {
+        return "\nYou must answer strictly in the following JSON format: " + jsonStructure();
+    }
+
+    String jsonStructure() {
         String jsonStructure = jsonStructure(type, new HashSet<>());
         validateJsonStructure(jsonStructure, type);
-        return "\nYou must answer strictly in the following JSON format: " + jsonStructure;
+        return jsonStructure;
     }
 
     private static String jsonStructure(Class<?> type, Set<Class<?>> visited) {

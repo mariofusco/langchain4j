@@ -54,6 +54,7 @@ abstract class PojoCollectionOutputParser<T, CT extends Collection<T>> implement
 
     @Override
     public String formatInstructions() {
-        throw new IllegalStateException();
+        String jsonStructure = "[" + parser.jsonStructure() + "]";
+        return "\nYou must answer strictly in the following JSON format: " + jsonStructure;
     }
 }
