@@ -62,7 +62,7 @@ public class SupervisorAgentIT {
             The user request is: '{{it}}'.
             """)
         @Agent("An agent that categorizes the user request")
-        String categorizeRequest(String request);
+        String categorizeRequest(@P("it") String request);
     }
 
     @Test
