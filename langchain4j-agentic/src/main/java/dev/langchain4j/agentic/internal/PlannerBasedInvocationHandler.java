@@ -221,6 +221,11 @@ public class PlannerBasedInvocationHandler implements InvocationHandler, Interna
             Planner planner = plannerSupplier.get();
             planner.init(new InitPlanningContext(currentScope, this, subagents));
             result = new PlannerLoop(planner, currentScope, registry).loop();
+            if (isRootCall() && !isSuspended(result)) {
+                // the root call is complete only when all its async subagents are, so that their failures are
+                // handled here like any other, and their invocations are reported before the one of the root
+                currentScope.awaitPendingResponses();
+            }
         } catch (Exception e) {
             currentScope.compensateAll();
             if (isRootCall()) {
@@ -230,7 +235,7 @@ public class PlannerBasedInvocationHandler implements InvocationHandler, Interna
             throw e;
         }
 
-        if (result instanceof Action action && action.isSuspended()) {
+        if (isSuspended(result)) {
             onAgenticSystemSuspended(agentListener, currentScope);
             if (isRootCall() && method.getReturnType().equals(ResultWithAgenticScope.class)) {
                 return new ResultWithAgenticScope<>(currentScope, null, true, () ->
@@ -242,7 +247,6 @@ public class PlannerBasedInvocationHandler implements InvocationHandler, Interna
         Object output = outputKey != null ? currentScope.readState(outputKey) : result;
 
         if (isRootCall()) {
-            currentScope.awaitPendingResponses();
             afterAgentInvocation(agentListener, currentScope, this, namedArgs, output);
             currentScope.rootCallEnded(registry, agentListener);
         }
@@ -250,6 +254,10 @@ public class PlannerBasedInvocationHandler implements InvocationHandler, Interna
         return method.getReturnType().equals(ResultWithAgenticScope.class)
                 ? new ResultWithAgenticScope<>(currentScope, output)
                 : output;
+    }
+
+    private static boolean isSuspended(Object result) {
+        return result instanceof Action action && action.isSuspended();
     }
 
     private static Map<String, Object> argToMap(Method method, Object[] args) {

@@ -1,10 +1,12 @@
 package dev.langchain4j.agentic.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.agentic.UntypedAgent;
+import dev.langchain4j.agentic.agent.AgentInvocationException;
 import dev.langchain4j.service.V;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,16 +25,7 @@ class AgentMonitorAsyncSubagentTest {
     @Test
     void async_subagent_starting_after_its_parent_completed_is_recorded_in_the_root_execution() {
         SlowExecutorMonitor monitor = new SlowExecutorMonitor();
-        UntypedAgent reviews = AgenticServices.parallelBuilder()
-                .name("reviews")
-                .subAgents(new AudienceReviewer(), new LengthChecker())
-                .build();
-        UntypedAgent desk = AgenticServices.sequenceBuilder()
-                .name("desk")
-                .subAgents(reviews, new Publisher())
-                .outputKey("published")
-                .listener(monitor)
-                .build();
+        UntypedAgent desk = desk(monitor, new AudienceReviewer());
 
         desk.invoke(Map.of("story", "a story about dragons"));
 
@@ -41,8 +34,47 @@ class AgentMonitorAsyncSubagentTest {
         assertThat(monitor.successfulExecutions()).hasSize(1);
         AgentInvocation root = monitor.successfulExecutions().get(0).topLevelInvocations();
         assertThat(root.agent().name()).isEqualTo("desk");
-        assertThat(nestedNames(root.nestedInvocations().get(0)))
-                .containsExactlyInAnyOrder("reviewAudience", "checkLength");
+        AgentInvocation reviews = root.nestedInvocations().get(0);
+        assertThat(nestedNames(reviews)).containsExactlyInAnyOrder("reviewAudience", "checkLength");
+
+        // the root is reported as completed only after its async sub-agent
+        AgentInvocation review = nested(reviews, "reviewAudience");
+        assertThat(review.done()).isTrue();
+        assertThat(root.finishTime()).isAfterOrEqualTo(review.finishTime());
+    }
+
+    @Test
+    void failing_async_subagent_starting_after_its_parent_completed_fails_the_root_execution() {
+        SlowExecutorMonitor monitor = new SlowExecutorMonitor();
+        UntypedAgent desk = desk(monitor, new FailingAudienceReviewer());
+
+        assertThatThrownBy(() -> desk.invoke(Map.of("story", "a story about dragons")))
+                .isInstanceOf(AgentInvocationException.class)
+                .hasRootCauseMessage("audience review failed");
+
+        assertThat(monitor.failures).isEmpty();
+        assertThat(monitor.ongoingExecutions()).isEmpty();
+        assertThat(monitor.successfulExecutions()).isEmpty();
+        assertThat(monitor.failedExecutions()).hasSize(1);
+        MonitoredExecution execution = monitor.failedExecutions().get(0);
+        assertThat(execution.topLevelInvocations().agent().name()).isEqualTo("desk");
+        assertThat(execution.error().agentName()).isEqualTo("reviewAudience");
+        AgentInvocation reviews =
+                execution.topLevelInvocations().nestedInvocations().get(0);
+        assertThat(nestedNames(reviews)).containsExactlyInAnyOrder("reviewAudience", "checkLength");
+    }
+
+    private static UntypedAgent desk(SlowExecutorMonitor monitor, Object audienceReviewer) {
+        UntypedAgent reviews = AgenticServices.parallelBuilder()
+                .name("reviews")
+                .subAgents(audienceReviewer, new LengthChecker())
+                .build();
+        return AgenticServices.sequenceBuilder()
+                .name("desk")
+                .subAgents(reviews, new Publisher())
+                .outputKey("published")
+                .listener(monitor)
+                .build();
     }
 
     public static class AudienceReviewer {
@@ -50,6 +82,14 @@ class AgentMonitorAsyncSubagentTest {
         @Agent(async = true, outputKey = "audienceReview")
         public String reviewAudience(@V("story") String story) {
             return "fine for kids";
+        }
+    }
+
+    public static class FailingAudienceReviewer {
+
+        @Agent(async = true, outputKey = "audienceReview")
+        public String reviewAudience(@V("story") String story) {
+            throw new IllegalStateException("audience review failed");
         }
     }
 
@@ -120,6 +160,11 @@ class AgentMonitorAsyncSubagentTest {
             }
         }
 
+        /**
+         * The root thread is parked only when it waits for the response of the async agent, so from this point on
+         * everything but the async agent has completed: without this wait, a monitor resolving the completed parent
+         * could still pass by chance, with the async agent starting before the root has been finalized.
+         */
         private void awaitRootWaiting() {
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
             while (rootThread.getState() != Thread.State.WAITING) {
@@ -137,5 +182,15 @@ class AgentMonitorAsyncSubagentTest {
             names.add(nested.agent().name());
         }
         return names;
+    }
+
+    private static AgentInvocation nested(AgentInvocation invocation, String agentName) {
+        for (AgentInvocation nested : invocation.nestedInvocations()) {
+            if (agentName.equals(nested.agent().name())) {
+                return nested;
+            }
+        }
+        throw new AssertionError(
+                agentName + " not invoked under " + invocation.agent().name());
     }
 }

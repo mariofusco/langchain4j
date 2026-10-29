@@ -43,6 +43,7 @@ public class MonitoredExecution {
     private void addNestedInvocation(AgentInstance agent, AgentInvocation newInvocation) {
         AgentInvocation parentInvocation = ongoingInvocations.get(agent.parent().agentId());
         if (parentInvocation == null) {
+            // an async agent can start after its parent has completed, so it goes under its last invocation
             parentInvocation = latestInvocations.get(agent.parent().agentId());
         }
         if (parentInvocation == null) {
